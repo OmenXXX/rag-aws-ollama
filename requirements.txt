@@ -1,0 +1,10 @@
+boto3
+pypdf
+sentence-transformers
+faiss-cpu
+numpy
+fastapi
+uvicorn[standard]
+python-multipart
+gradio
+requests
