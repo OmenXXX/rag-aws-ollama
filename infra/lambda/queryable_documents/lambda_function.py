@@ -18,11 +18,17 @@ def lambda_handler(event, context):
             "body": ""
         }
 
+    # --- Macro Variables ---
+    # Bucket name fetched from environment variables, defaulting to the hardcoded lab bucket if missing
     bucket_name = os.environ.get("BUCKET_NAME", "ayan-deaws-lab-600743178533")
+    
+    # Prefix used to restrict S3 listing to only the folder containing FAISS metadata
     prefix = os.environ.get("FAISS_METADATA_PREFIX", "embeddings/faiss/")
 
     try:
-        # Paginate S3 list_objects_v2
+        # Complex Logic: S3 Pagination
+        # S3 lists a maximum of 1000 objects per API call.
+        # We must use a paginator to iteratively fetch all 'pages' of results if there are >1000 files.
         paginator = s3_client.get_paginator('list_objects_v2')
         pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
 

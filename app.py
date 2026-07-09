@@ -28,9 +28,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Macro Variables (Environment Configurations) ---
+# The target S3 bucket used for raw PDFs, parsed chunks, and FAISS vector indices
 BUCKET_NAME = os.environ.get("RAG_BUCKET", "ayan-deaws-lab-600743178533")
+
+# The sentence-transformers model used to convert text chunks into numerical vectors (embeddings)
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+
+# The base URL for the local or remote Ollama LLM API
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+
+# The default local LLM model name used for generation (if not overridden by frontend)
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "tinyllama")
 
 s3_client = boto3.client("s3")
@@ -172,7 +180,13 @@ def _get_embedding_model() -> SentenceTransformer:
 
 
 def retrieve_chunks_for_question(doc_name: str, question: str, top_k: int) -> Dict[str, Any]:
-    """Load a FAISS index and chunk file from S3, then return the top matching chunks."""
+    """
+    Core Retrieval Logic:
+    1. Checks if the FAISS index (.index) and chunk mappings (.jsonl) exist locally.
+    2. If not, downloads them from S3 (caching them locally in ./work/api/).
+    3. Uses sentence-transformers to convert the user's string question into a vector.
+    4. Performs an L2 distance search on the FAISS index to find the 'top_k' most similar text chunks.
+    """
     if top_k < 1:
         top_k = 1
     if top_k > 20:
@@ -251,6 +265,11 @@ def query_rag(req: QueryRequest):
 
 
 def build_rag_user_message(question: str, chunks: List[Dict[str, Any]]) -> str:
+    """
+    Prompt Engineering / Context Building Logic:
+    - Takes the top 3 retrieved chunks and truncates them (700 chars max) to avoid exceeding local LLM context limits.
+    - Conditionally injects strict instructions if the question pertains to "candidate names" or "technical skills".
+    """
     context_blocks = []
     for i, chunk in enumerate(chunks[:3]):
         text = (chunk.get("text") or "").strip()
@@ -288,6 +307,10 @@ def answer_rag(req: RagAnswerRequest):
 
         try:
             logger.info("Calling Ollama model %s at %s", selected_model, OLLAMA_URL)
+            
+            # Complex LLM Call:
+            # We use the /api/chat endpoint with explicit 'system' instructions to restrict hallucinations.
+            # We aggressively set temperature=0.0 and cap num_predict (max tokens) to keep responses grounded.
             response = requests.post(
                 f"{OLLAMA_URL.rstrip('/')}/api/chat",
                 json={

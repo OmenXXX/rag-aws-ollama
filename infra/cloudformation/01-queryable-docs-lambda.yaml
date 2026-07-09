@@ -1,18 +1,28 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Lambda stack for RAG queryable documents'
+Description: >
+  Lambda stack for RAG queryable documents.
+  This template provisions a Lambda function and its required IAM role.
+  The Lambda acts as the backend for the API Gateway, returning a list of processed PDF metadata from S3.
 
 Parameters:
+  # The S3 bucket where processed FAISS metadata and chunks are stored
   BucketName:
     Type: String
     Default: ayan-deaws-lab-600743178533
+  
+  # The folder path (prefix) within S3 where the .metadata.json files are located
   FaissMetadataPrefix:
     Type: String
     Default: embeddings/faiss/
 
 Resources:
+  # ==========================================
+  # IAM Execution Role for Lambda
+  # ==========================================
   QueryableDocsLambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      # Allows the Lambda service to assume this role during execution
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -21,20 +31,25 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
+        # Custom inline policy explicitly granting S3 Read Access
         - PolicyName: S3ReadAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:ListBucket
-                  - s3:GetObject
+                  - s3:ListBucket   # Needed to list objects inside the prefix
+                  - s3:GetObject    # Needed to read the metadata JSON files
                 Resource:
                   - !Sub "arn:aws:s3:::${BucketName}"
                   - !Sub "arn:aws:s3:::${BucketName}/*"
+      # Attaches AWS managed policy for basic logging to CloudWatch
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
+  # ==========================================
+  # The Lambda Function Definition
+  # ==========================================
   QueryableDocsLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -42,17 +57,20 @@ Resources:
       Runtime: python3.9
       Handler: lambda_function.lambda_handler
       Role: !GetAtt QueryableDocsLambdaRole.Arn
-      Timeout: 15
+      Timeout: 15 # Allows up to 15 seconds to finish (listing S3 can sometimes be slow)
       Environment:
+        # Passes macro variables down to the Python runtime
         Variables:
           BUCKET_NAME: !Ref BucketName
           FAISS_METADATA_PREFIX: !Ref FaissMetadataPrefix
       Code:
-        # Assuming SAM build/deploy or simple zip upload
+        # Defines where CloudFormation should fetch the deployment package (the zipped Python code)
+        # Assumes the zip is already uploaded to this S3 bucket path (via SAM or manual CLI zip)
         S3Bucket: !Ref BucketName
         S3Key: lambda-deploy/queryable_documents.zip
 
 Outputs:
+  # Exports the Lambda's Amazon Resource Name (ARN) so the API Gateway stack can reference and invoke it
   LambdaArn:
     Value: !GetAtt QueryableDocsLambda.Arn
     Export:

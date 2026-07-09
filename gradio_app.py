@@ -2,7 +2,11 @@ import gradio as gr
 import requests
 import os
 
+# --- Macro Variables (Environment Configurations) ---
+# The base URL for the EC2 FastAPI backend (used for uploads, retrieval, and LLM answering)
 API_BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+
+# Optional override URL pointing to an API Gateway (used to offload the queryable document listing to a serverless Lambda)
 QUERYABLE_API_URL = os.environ.get("QUERYABLE_API_URL")
 
 
@@ -49,6 +53,12 @@ def _format_chunks(chunks):
 
 
 def query_rag(doc_name, question, top_k, generate_answer, ollama_model):
+    """
+    Complex Logic: RAG Query Router
+    - Validates inputs.
+    - Conditionally routes the request to either the `/rag/answer` endpoint (full Ollama LLM generation) 
+      or the `/rag/query` endpoint (simple FAISS chunk retrieval without LLM) based on the user's checkbox.
+    """
     if not doc_name:
         return "", "Please select a document."
     if not question:

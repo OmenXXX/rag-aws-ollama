@@ -1,53 +1,81 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'API Gateway stack for RAG queryable documents'
+Description: >
+  API Gateway stack for RAG queryable documents.
+  This template sets up an HTTP API Gateway that proxies requests directly to the Lambda function.
+  It manages CORS natively to allow the Gradio frontend to query it from any IP.
 
 Resources:
+  # ==========================================
+  # API Gateway Definition (HTTP API v2)
+  # ==========================================
   QueryableDocsApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
       Name: rag-queryable-api
       ProtocolType: HTTP
+      # Global CORS configuration so the browser doesn't block the Gradio frontend requests
       CorsConfiguration:
         AllowOrigins:
-          - '*'
+          - '*' # Allow any domain (in a production setup, restrict to Gradio UI domain)
         AllowMethods:
           - GET
           - OPTIONS
         AllowHeaders:
           - Content-Type
 
+  # ==========================================
+  # Lambda Integration
+  # ==========================================
   QueryableDocsIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref QueryableDocsApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS_PROXY # Pass the full HTTP request directly to the Lambda event object
       IntegrationUri:
+        # Import the ARN of the Lambda created in the previous stack
         Fn::ImportValue: QueryableDocsLambdaArn
-      PayloadFormatVersion: '2.0'
+      PayloadFormatVersion: '2.0' # Use modern payload format for easier event parsing in Lambda
 
+  # ==========================================
+  # API Route
+  # ==========================================
   QueryableDocsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref QueryableDocsApi
+      # The explicit HTTP method and URL path that triggers this route
       RouteKey: 'GET /documents/queryable'
+      # Bind the route to the Lambda Integration
       Target: !Join [ '/', [ 'integrations', !Ref QueryableDocsIntegration ] ]
 
+  # ==========================================
+  # API Stage (Deployment)
+  # ==========================================
   QueryableDocsStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
       ApiId: !Ref QueryableDocsApi
-      StageName: '$default'
-      AutoDeploy: true
+      StageName: '$default' # Using $default allows hitting the API URL without a stage prefix (e.g., /dev or /prod)
+      AutoDeploy: true # Automatically deploy changes to the API
 
+  # ==========================================
+  # Lambda Invocation Permissions
+  # ==========================================
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
+      # Tell Lambda it is allowed to be invoked by API Gateway
       FunctionName:
         Fn::ImportValue: QueryableDocsLambdaArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
+      # Restrict the permission so ONLY this specific API route can trigger the Lambda
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${QueryableDocsApi}/*/*/documents/queryable"
 
 Outputs:
+  # ==========================================
+  # Stack Outputs
+  # ==========================================
   ApiEndpoint:
+    # Print out the final URL to be placed into the Gradio QUERYABLE_API_URL environment variable
     Value: !Sub "https://${QueryableDocsApi}.execute-api.${AWS::Region}.amazonaws.com/documents/queryable"

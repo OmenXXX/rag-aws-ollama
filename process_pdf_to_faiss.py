@@ -16,10 +16,18 @@ import faiss
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Constants
+# --- Constants and Macro Variables ---
+# CHUNK_SIZE controls the maximum length of a string before it's cut (impacts LLM context window limits).
 CHUNK_SIZE = 1000
+
+# CHUNK_OVERLAP ensures that the end of one chunk is repeated at the beginning of the next chunk 
+# so context isn't lost if a sentence is split exactly at the boundary.
 CHUNK_OVERLAP = 200
+
+# The standard model for embedding generation (must match the backend API's expected model).
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
+# The output dimension size for the chosen embedding model (all-MiniLM-L6-v2 outputs a 384-dimensional vector).
 EMBEDDING_DIMENSION = 384
 
 
@@ -71,7 +79,11 @@ def extract_pages_text(pdf_path: str) -> list:
 
 
 def chunk_pages(pages: list, bucket: str, key: str, version_id: Optional[str], safe_name: str) -> list:
-    """Chunk text into overlapping chunks."""
+    """
+    Complex Logic: Text Chunking (Sliding Window Approach)
+    Breaks large continuous page texts into smaller, overlapping chunks.
+    The overlapping window prevents sentences/context from being hard-cut at the CHUNK_SIZE boundary.
+    """
     logger.info("Chunking text pages...")
     chunks = []
     chunk_index = 1
@@ -159,6 +171,16 @@ def process_pdf_to_faiss(
     version_id: Optional[str] = None,
     output_name: Optional[str] = None
 ) -> dict:
+    """
+    Complex Pipeline Orchestration:
+    This function runs the entire end-to-end embedding pipeline for a single document:
+    1. Download PDF: Fetches raw PDF from S3 to local storage.
+    2. Extract Text: Parses PDF to raw strings.
+    3. Chunk Text: Slices string into overlapping tokens/blocks.
+    4. Generate Embeddings: Passes chunks through the SentenceTransformer model to create vectors.
+    5. Build FAISS Index: Inserts vectors into an L2 Distance FAISS index.
+    6. Upload to S3: Stores the chunks (.jsonl), the binary FAISS index (.index), and metadata back to S3.
+    """
     safe_name = output_name if output_name else safe_name_from_key(key)
     logger.info(f"Using base name for outputs: {safe_name}")
     
