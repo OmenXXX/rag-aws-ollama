@@ -250,36 +250,32 @@ def query_rag(req: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def build_rag_prompt(question: str, chunks: List[Dict[str, Any]]) -> str:
+def build_rag_user_message(question: str, chunks: List[Dict[str, Any]]) -> str:
     context_blocks = []
-    for i, chunk in enumerate(chunks):
+    for i, chunk in enumerate(chunks[:3]):
         text = (chunk.get("text") or "").strip()
-        # Keep prompt small for tiny local models.
-        if len(text) > 900:
-            text = text[:900] + "..."
+        if len(text) > 700:
+            text = text[:700] + "..."
         context_blocks.append(
-            f"[Evidence chunk {i + 1} | Page {chunk.get('page_start')}]\n{text}"
+            f"[Evidence {i + 1} | Page {chunk.get('page_start')}]\n{text}"
         )
 
     context = "\n\n".join(context_blocks)
-    return f"""You are a document question-answering assistant.
-Use ONLY the evidence below.
-Do NOT repeat the evidence text.
-Do NOT say "The given context chunk is".
-Do NOT mention "Context Chunk".
-Answer the user's question directly.
-If the question is about technical skills, return a clean bullet list grouped by category.
-If the answer is not present in the evidence, say:
-"The document does not contain enough information."
+    
+    q_lower = question.lower()
+    extra_instructions = ""
+    if "candidate name" in q_lower or "name of candidate" in q_lower or "who is the candidate" in q_lower:
+        extra_instructions = "\nReturn only the person's name."
+    elif "technical skills" in q_lower or "skills" in q_lower:
+        extra_instructions = "\nReturn a concise bullet list grouped by category."
 
-Question:
-{question}
+    return f"""Question:
+{question}{extra_instructions}
 
 Evidence:
 {context}
 
-Final answer:
-"""
+Return the answer only."""
 
 
 @app.post("/rag/answer")
@@ -288,19 +284,28 @@ def answer_rag(req: RagAnswerRequest):
     try:
         retrieval = retrieve_chunks_for_question(req.doc_name, req.question, req.top_k)
         chunks = retrieval.get("results", [])
-        prompt = build_rag_prompt(req.question, chunks)
+        user_msg = build_rag_user_message(req.question, chunks)
 
         try:
             logger.info("Calling Ollama model %s at %s", selected_model, OLLAMA_URL)
             response = requests.post(
-                f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                f"{OLLAMA_URL.rstrip('/')}/api/chat",
                 json={
                     "model": selected_model, 
-                    "prompt": prompt, 
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a strict document QA assistant. Answer only from the provided evidence. Do not repeat the prompt. Do not repeat the evidence. Do not mention context chunks. Give only the final answer. If the answer is not present, say: The document does not contain enough information."
+                        },
+                        {
+                            "role": "user",
+                            "content": user_msg
+                        }
+                    ],
                     "stream": False,
                     "options": {
-                        "temperature": 0.1,
-                        "num_predict": 350,
+                        "temperature": 0.0,
+                        "num_predict": 250,
                         "num_ctx": 2048
                     }
                 },
@@ -308,7 +313,16 @@ def answer_rag(req: RagAnswerRequest):
             )
             response.raise_for_status()
             ollama_data = response.json()
-            answer = (ollama_data.get("response") or "").strip()
+            answer = (ollama_data.get("message", {}).get("content") or "").strip()
+            
+            if answer:
+                if "Final answer:" in answer:
+                    answer = answer.split("Final answer:")[-1].strip()
+                if "Evidence:" in answer:
+                    answer = answer.split("Evidence:")[-1].strip()
+                if "Question:" in answer:
+                    answer = answer.split("Question:")[-1].strip()
+            
             if not answer:
                 answer = "Ollama returned an empty response. Retrieved chunks are returned below."
         except Exception as ollama_error:

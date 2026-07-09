@@ -1,7 +1,9 @@
 import gradio as gr
 import requests
+import os
 
-API_BASE = "http://127.0.0.1:8000"
+API_BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+QUERYABLE_API_URL = os.environ.get("QUERYABLE_API_URL")
 
 
 def upload_pdf(file_path, auto_ingest):
@@ -20,7 +22,8 @@ def upload_pdf(file_path, auto_ingest):
 
 def get_queryable_documents():
     try:
-        response = requests.get(f"{API_BASE}/documents/queryable", timeout=30)
+        url = QUERYABLE_API_URL or f"{API_BASE}/documents/queryable"
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
         docs = response.json()
         doc_names = [doc["doc_name"] for doc in docs]
@@ -51,7 +54,7 @@ def query_rag(doc_name, question, top_k, generate_answer, ollama_model):
         payload = {"doc_name": doc_name, "question": question, "top_k": int(top_k)}
 
         if generate_answer:
-            payload["model"] = ollama_model or "tinyllama"
+            payload["model"] = ollama_model or "qwen2.5:1.5b"
             response = requests.post(f"{API_BASE}/rag/answer", json=payload, timeout=180)
             response.raise_for_status()
             data = response.json()
@@ -92,7 +95,7 @@ with gr.Blocks(title="AWS RAG Processor UI") as demo:
         question_input = gr.Textbox(label="Question")
         top_k_slider = gr.Slider(minimum=1, maximum=10, value=5, step=1, label="Top K")
         generate_answer_cb = gr.Checkbox(label="Generate final answer with Ollama", value=True)
-        ollama_model_input = gr.Textbox(label="Ollama model", value="tinyllama")
+        ollama_model_input = gr.Textbox(label="Ollama model", value="qwen2.5:1.5b")
         query_btn = gr.Button("Query Selected PDF")
 
         answer_output = gr.Textbox(label="Final Answer", lines=8)

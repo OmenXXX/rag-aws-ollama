@@ -56,7 +56,16 @@ Open port `7860` only to **My IP** for Gradio access.
 5. Select the PDF from the dropdown.
 6. Ask a question!
 
-*Note: The endpoint currently returns semantic search chunks. Full LLM answer generation can be added later.*
+*Note: For better RAG answer generation, it is recommended to use `qwen2.5:1.5b`. The `tinyllama` model is only a fallback demo model and may produce poor or repetitive answers.*
+
+## API Gateway Queryable Documents Endpoint
+
+API Gateway URL can be passed to Gradio using:
+```bash
+QUERYABLE_API_URL="https://l7f37bxlal.execute-api.ap-south-2.amazonaws.com/documents/queryable" python gradio_app.py
+```
+- If `QUERYABLE_API_URL` is not set, Gradio falls back to EC2 FastAPI `/documents/queryable`.
+- Upload and RAG answer still use the EC2 FastAPI backend.
 
 ## Running the Processor Manually (CLI)
 
