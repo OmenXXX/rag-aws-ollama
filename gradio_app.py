@@ -8,7 +8,7 @@ QUERYABLE_API_URL = os.environ.get("QUERYABLE_API_URL")
 
 def upload_pdf(file_path, auto_ingest):
     if not file_path:
-        return "No file selected."
+        return {"error": "No file selected."}
     try:
         with open(file_path, "rb") as f:
             files = {"file": f}
@@ -17,12 +17,12 @@ def upload_pdf(file_path, auto_ingest):
             response.raise_for_status()
             return response.json()
     except Exception as e:
-        return f"Error: {str(e)}"
+        return {"error": str(e)}
 
 
 def get_queryable_documents():
+    url = QUERYABLE_API_URL or f"{API_BASE}/documents/queryable"
     try:
-        url = QUERYABLE_API_URL or f"{API_BASE}/documents/queryable"
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         docs = response.json()
