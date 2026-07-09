@@ -1,37 +1,32 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
-# This stack creates the API Gateway endpoint in front of the Lambda.
-# It does NOT create the Lambda.
-# It assumes the Lambda already exists from 01-queryable-docs-lambda.yaml.
+# This stack creates a public HTTP API endpoint:
+# GET /documents/queryable
+# That endpoint invokes the Lambda from the first stack.
 Description: "API Gateway endpoint for queryable RAG PDFs Lambda"
 
 Parameters:
-  ApiName:
-    Type: String
-    Default: "rag-queryable-documents-api"
-    Description: "Name of the API Gateway HTTP API."
-
   LambdaFunctionName:
     Type: String
     Default: "rag-queryable-documents-lambda"
-    Description: "Existing Lambda function that API Gateway will invoke."
+    # Existing Lambda function name created by the first stack.
+    # This stack does not recreate Lambda.
+
+  ApiName:
+    Type: String
+    Default: "rag-queryable-documents-api"
+    # Name of the API Gateway HTTP API.
 
 Resources:
-  # ============================================================
-  # HTTP API Gateway
-  # ============================================================
-  # HTTP API is simpler and cheaper than REST API for this POC.
-  # It exposes a public endpoint like:
-  # https://xxxx.execute-api.ap-south-2.amazonaws.com/documents/queryable
+  # Creates an HTTP API Gateway.
+  # HTTP API is simpler and cheaper than REST API Gateway for this use case.
   QueryableDocumentsHttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
       Name: !Ref ApiName
       ProtocolType: HTTP
 
-      # CORS is enabled so a browser-based UI can call the API if needed.
-      # In our current setup, Gradio server calls this from EC2 Python,
-      # but CORS is still useful for future frontend/browser calls.
+      # CORS allows browser-based frontend to call this API.
       CorsConfiguration:
         AllowOrigins:
           - "*"
@@ -41,12 +36,9 @@ Resources:
         AllowHeaders:
           - Content-Type
 
-  # ============================================================
-  # API Gateway → Lambda Integration
-  # ============================================================
-  # This tells API Gateway where to send the request.
-  # AWS_PROXY means API Gateway forwards request details to Lambda,
-  # and Lambda returns an API Gateway-compatible response.
+  # Integration connects API Gateway to Lambda.
+  # AWS_PROXY means API Gateway passes request details directly to Lambda
+  # and expects Lambda to return API-style response.
   QueryableDocumentsIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -55,13 +47,9 @@ Resources:
       IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunctionName}"
       PayloadFormatVersion: "2.0"
 
-  # ============================================================
-  # API Route
-  # ============================================================
-  # This creates the route:
+  # Route defines the URL path and HTTP method.
+  # This creates:
   # GET /documents/queryable
-  #
-  # When someone calls this URL, API Gateway invokes the Lambda.
   QueryableDocumentsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -69,11 +57,9 @@ Resources:
       RouteKey: "GET /documents/queryable"
       Target: !Sub "integrations/${QueryableDocumentsIntegration}"
 
-  # ============================================================
-  # Default Stage
-  # ============================================================
-  # "$default" means the final URL does not require /dev or /prod.
-  # AutoDeploy means changes to routes/integration are automatically deployed.
+  # Stage exposes/deploys the API.
+  # "$default" means the final URL does not need /prod or /dev.
+  # AutoDeploy means route changes are automatically deployed.
   QueryableDocumentsStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -81,12 +67,8 @@ Resources:
       StageName: "$default"
       AutoDeploy: true
 
-  # ============================================================
-  # Lambda Invoke Permission
-  # ============================================================
-  # API Gateway is a separate AWS service.
-  # Even though the API route points to Lambda, Lambda must explicitly allow
-  # API Gateway to invoke it.
+  # Permission allowing API Gateway to invoke the Lambda function.
+  # Without this, API Gateway would exist but calls would fail with permission error.
   QueryableDocumentsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -96,11 +78,14 @@ Resources:
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${QueryableDocumentsHttpApi}/*/*"
 
 Outputs:
+  # API Gateway ID.
   ApiId:
-    Description: "API Gateway HTTP API ID."
+    Description: "API Gateway ID"
     Value: !Ref QueryableDocumentsHttpApi
 
-  # This is the URL we pass to Gradio using QUERYABLE_API_URL.
+  # Final endpoint used by Gradio.
+  # Example:
+  # https://lvr37bxja1.execute-api.ap-south-2.amazonaws.com/documents/queryable
   QueryableDocumentsUrl:
-    Description: "Final queryable documents API endpoint."
+    Description: "Queryable documents endpoint"
     Value: !Sub "https://${QueryableDocumentsHttpApi}.execute-api.${AWS::Region}.amazonaws.com/documents/queryable"
