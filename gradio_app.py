@@ -29,7 +29,11 @@ def get_queryable_documents():
         doc_names = [doc["doc_name"] for doc in docs]
         return gr.update(choices=doc_names, value=doc_names[0] if doc_names else None), docs
     except Exception as e:
-        return gr.update(choices=[], value=None), f"Error: {str(e)}"
+        print(f"Failed to fetch queryable documents from {url}: {e}")
+        return gr.update(choices=[], value=None), {
+            "error": str(e),
+            "url": url
+        }
 
 
 def _format_chunks(chunks):
